@@ -20,7 +20,7 @@ try {
 catch {}
 
 # Required Assemblies (v3.0.0+ required for Standalone EXE GUI)
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, Microsoft.VisualBasic
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -58,7 +58,7 @@ Import-Module ExchangeOnlineManagement -MinimumVersion 3.0.0
 
 
 # Load XAML (Native OS Look)
-[xml]$xaml = @"
+$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="O365 AutoReply Manager by NetronIC (v 1.0)" Height="700" Width="1000"
@@ -138,6 +138,8 @@ Import-Module ExchangeOnlineManagement -MinimumVersion 3.0.0
                             <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
                             <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="140"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="75"/>
+                            <DataGridTextColumn Header="Int" Binding="{Binding InternalAudience}" Width="40"/>
+                            <DataGridTextColumn Header="Ext" Binding="{Binding ExternalAudience}" Width="40"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -164,6 +166,9 @@ Import-Module ExchangeOnlineManagement -MinimumVersion 3.0.0
                             <RadioButton Name="rbDisabled" Content="Disabled" GroupName="Status" Margin="0,2"/>
                             <RadioButton Name="rbEnabled" Content="Enabled (Always)" GroupName="Status" Margin="0,2"/>
                             <RadioButton Name="rbScheduled" Content="Scheduled" GroupName="Status" Margin="0,2"/>
+                            <Separator Margin="0,5"/>
+                            <CheckBox Name="chkExternalAudience" Content="Send Outside Org" Margin="0,2" IsEnabled="True" 
+                                      ToolTip="Send auto-replies to external senders"/>
                         </StackPanel>
 
                         <Border Grid.Column="1" BorderThickness="1,0,0,0" BorderBrush="LightGray" Padding="10,0,0,0" Name="pnlSchedule" IsEnabled="False">
@@ -197,22 +202,47 @@ Import-Module ExchangeOnlineManagement -MinimumVersion 3.0.0
                 <GroupBox Header="Messages" Grid.Row="1" Name="grpMessages" IsEnabled="False" Margin="5,5,0,0">
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/> <!-- Checkbox sync -->
-                            <RowDefinition Height="*"/>    <!-- TextBox/Tabs -->
+                            <RowDefinition Height="Auto"/> <!-- Sync Checkbox -->
+                            <RowDefinition Height="Auto"/> <!-- Toolbar -->
+                            <RowDefinition Height="*"/>    <!-- Editors -->
                         </Grid.RowDefinitions>
                         
-                        <CheckBox Name="chkSyncMsg" Content="Use same message for both (Sync)" Margin="0,0,0,5"/>
+                        <CheckBox Name="chkSyncMsg" Content="Use same message for both (Sync)" Margin="0,0,0,4"/>
                         
-                        <TextBox Name="txtCommonMsg" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" Height="Auto" VerticalContentAlignment="Top" Padding="6"/>
-                        
-                        <TabControl Name="tabMessages" Grid.Row="1">
-                            <TabItem Header="Internal">
-                                <TextBox Name="txtInternalMsg" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Height="Auto" VerticalContentAlignment="Top" Padding="6"/>
-                            </TabItem>
-                            <TabItem Header="External">
-                                <TextBox Name="txtExternalMsg" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Height="Auto" VerticalContentAlignment="Top" Padding="6"/>
-                            </TabItem>
-                        </TabControl>
+                        <ToolBar Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="0,0,0,4" Height="28">
+                            <Button Name="btnBold" Content="B" FontWeight="Bold" Width="24" ToolTip="Bold" Focusable="False"/>
+                            <Button Name="btnItalic" Content="I" FontStyle="Italic" Width="24" ToolTip="Italic" Margin="2,0" Focusable="False"/>
+                            <Button Name="btnUnderline" Width="24" ToolTip="Underline" Focusable="False">
+                                <TextBlock Text="U" TextDecorations="Underline"/>
+                            </Button>
+                            <Separator/>
+                            <Button Name="btnList" Content="• List" Width="45" ToolTip="Bullet List" Focusable="False"/>
+                            <Button Name="btnLink" Content="Link" Width="40" ToolTip="Insert Link" Margin="2,0" Focusable="False"/>
+                            <Separator/>
+                            <Button Name="btnForeColor" Width="24" ToolTip="Font Color" Focusable="False">
+                                <TextBlock Text="A" FontWeight="Bold" Foreground="Red" TextDecorations="Underline"/>
+                            </Button>
+                            <Button Name="btnBackColor" Width="24" ToolTip="Highlight" Focusable="False">
+                                <Border Background="Yellow" Padding="2,0">
+                                    <TextBlock Text="ab" Foreground="Black"/>
+                                </Border>
+                            </Button>
+                            <Separator/>
+                            <Button Name="btnClearFormat" Content="Tx" Width="24" ToolTip="Clear Formatting" Focusable="False"/>
+                        </ToolBar>
+
+                        <Grid Grid.Row="2">
+                            <WebBrowser Name="wbCommon" Visibility="Collapsed"/>
+                            
+                            <TabControl Name="tabMessages">
+                                <TabItem Header="Internal (Organization)">
+                                    <WebBrowser Name="wbInternal"/>
+                                </TabItem>
+                                <TabItem Header="External (Outside)">
+                                    <WebBrowser Name="wbExternal"/>
+                                </TabItem>
+                            </TabControl>
+                        </Grid>
                     </Grid>
                 </GroupBox>
                 
@@ -236,8 +266,10 @@ Import-Module ExchangeOnlineManagement -MinimumVersion 3.0.0
     </Grid>
 </Window>
 "@
-$reader = (New-Object System.Xml.XmlNodeReader $xaml)
-$window = [Windows.Markup.XamlReader]::Load($reader)
+
+$xamlStream = [System.IO.StringReader]::new($xaml)
+$xamlReader = [System.Xml.XmlReader]::Create($xamlStream)
+$window = [Windows.Markup.XamlReader]::Load($xamlReader)
 
 # Get Controls
 $btnConnect = $window.FindName("btnConnect")
@@ -265,14 +297,25 @@ $cbStartHour = $window.FindName("cbStartHour")
 $cbStartMin = $window.FindName("cbStartMin")
 $cbEndHour = $window.FindName("cbEndHour")
 $cbEndMin = $window.FindName("cbEndMin")
+$chkExternalAudience = $window.FindName("chkExternalAudience")
 
 $grpMessages = $window.FindName("grpMessages")
 $chkSyncMsg = $window.FindName("chkSyncMsg")
 $tabMessages = $window.FindName("tabMessages")
-# RichTextBoxes
-$txtCommonMsg = $window.FindName("txtCommonMsg")
-$txtInternalMsg = $window.FindName("txtInternalMsg")
-$txtExternalMsg = $window.FindName("txtExternalMsg")
+# HTML Editors (WebBrowser)
+$wbCommon = $window.FindName("wbCommon")
+$wbInternal = $window.FindName("wbInternal")
+$wbExternal = $window.FindName("wbExternal")
+
+# Toolbar Buttons
+$btnBold = $window.FindName("btnBold")
+$btnItalic = $window.FindName("btnItalic")
+$btnUnderline = $window.FindName("btnUnderline")
+$btnList = $window.FindName("btnList")
+$btnLink = $window.FindName("btnLink")
+$btnForeColor = $window.FindName("btnForeColor")
+$btnBackColor = $window.FindName("btnBackColor")
+$btnClearFormat = $window.FindName("btnClearFormat")
 
 $btnSave = $window.FindName("btnSave")
 $btnClear = $window.FindName("btnClear")
@@ -296,6 +339,137 @@ $cbStartMin.SelectedIndex = 0
 $cbEndHour.SelectedIndex = 17
 $cbEndMin.SelectedIndex = 0
 
+# HTML Editor Helpers
+function Initialize-Editor {
+    param($wb)
+    if ($null -eq $wb) { return }
+    # Added IE11 compatibility meta tag for better execCommand support
+    $html = @"
+<html>
+<head><meta http-equiv='X-UA-Compatible' content='IE=11'></head>
+<body contentEditable='true' style='font-family:Segoe UI;font-size:14px;margin:10px;'></body>
+</html>
+"@
+    $wb.NavigateToString($html)
+}
+
+function Set-ControlVisibility {
+    param($Control, $Visibility)
+    if ($Control) {
+        $Control.Visibility = $Visibility
+    }
+}
+
+function Get-EditorHtml {
+    param($wb)
+    if (-not $wb -or -not $wb.Document) { return "" }
+    try {
+        $html = $wb.Document.body.innerHTML
+        if ($html -eq "<br>" -or $html -eq "<P>&nbsp;</P>") { return "" }
+        return $html
+    }
+    catch { return "" }
+}
+
+function Set-EditorHtml {
+    param($wb, $html)
+    if ($null -eq $wb) { return }
+    if ($null -eq $html) { $html = "" }
+    try {
+        # Ensure the editor is initialized with the correct head/meta before setting content
+        if ($null -eq $wb.Document -or $null -eq $wb.Document.body) {
+            Initialize-Editor $wb
+            # Small delay to allow the NavigateToString to process enough to have a body
+            # This is safer than directly trying to access body.innerHTML immediately after Navigate
+            Start-Sleep -Milliseconds 100
+        }
+        
+        # If still null after init, we might be in an edge case, try direct navigation
+        if ($null -eq $wb.Document -or $null -eq $wb.Document.body) {
+            # Fallback: Navigate again with the content embedded
+            $fullHtml = @"
+<html>
+<head><meta http-equiv='X-UA-Compatible' content='IE=11'></head>
+<body contentEditable='true' style='font-family:Segoe UI;font-size:14px;margin:10px;'>$html</body>
+</html>
+"@
+            $wb.NavigateToString($fullHtml)
+        }
+        else {
+            $wb.Document.body.innerHTML = $html
+        }
+    }
+    catch { }
+}
+
+function Get-ActiveEditor {
+    if ($chkSyncMsg -and $chkSyncMsg.IsChecked) { return $wbCommon }
+    if ($tabMessages -and $tabMessages.SelectedIndex -eq 0) { return $wbInternal }
+    return $wbExternal
+}
+
+function Invoke-Format {
+    param($cmd, $val = $null)
+    $editor = Get-ActiveEditor
+    if ($editor -and $editor.Document) {
+        $editor.Focus() | Out-Null
+        $editor.Document.execCommand($cmd, $false, $val)
+    }
+}
+
+# Helper for safe event registration
+function Register-ToolbarButton {
+    param($Button, $Command, $Value = $null)
+    if ($Button) {
+        # Using .GetNewClosure() to ensure variables inside the script block are captured correctly
+        $Button.Add_Click({ Invoke-Format $Command $Value }.GetNewClosure())
+    }
+}
+
+# Initial Initialize
+Initialize-Editor $wbCommon
+Initialize-Editor $wbInternal
+Initialize-Editor $wbExternal
+
+# Toolbar Event Handlers
+Register-ToolbarButton $btnBold "bold"
+Register-ToolbarButton $btnItalic "italic"
+Register-ToolbarButton $btnUnderline "underline"
+Register-ToolbarButton $btnList "insertUnorderedList"
+Register-ToolbarButton $btnClearFormat "removeFormat"
+
+if ($btnLink) {
+    $btnLink.Add_Click({
+            $url = [Microsoft.VisualBasic.Interaction]::InputBox("Enter Link URL (e.g., http://...):", "Insert Link", "http://")
+            if (-not [string]::IsNullOrEmpty($url) -and $url -ne "http://") {
+                Invoke-Format "CreateLink" $url
+            }
+        })
+}
+
+function Show-ColorPicker {
+    $dialog = New-Object System.Windows.Forms.ColorDialog
+    $dialog.FullOpen = $true
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return "#{0:X2}{1:X2}{2:X2}" -f $dialog.Color.R, $dialog.Color.G, $dialog.Color.B
+    }
+    return $null
+}
+
+if ($btnForeColor) {
+    $btnForeColor.Add_Click({
+            $color = Show-ColorPicker
+            if ($color) { Invoke-Format "ForeColor" $color }
+        })
+}
+
+if ($btnBackColor) {
+    $btnBackColor.Add_Click({
+            $color = Show-ColorPicker
+            if ($color) { Invoke-Format "BackColor" $color }
+        })
+}
+
 # Variables
 $SelectedUser = $null
 $hasUnsavedChanges = $false
@@ -307,21 +481,28 @@ $cancelSearch = $false
 # Helper Functions
 function Set-Status {
     param($Text, $Color = "Black", $IsWorking = $false, $Percent = -1)
-    $lblActionStatus.Text = $Text
+    if ($lblActionStatus) {
+        $lblActionStatus.Text = $Text
+    }
+    
     if ($IsWorking) {
-        $pbStatus.Visibility = "Visible"
-        if ($Percent -ge 0) {
-            $pbStatus.IsIndeterminate = $false
-            $pbStatus.Value = $Percent
-            $pbStatus.Maximum = 100
-        }
-        else {
-            $pbStatus.IsIndeterminate = $true
+        if ($pbStatus) {
+            $pbStatus.Visibility = "Visible"
+            if ($Percent -ge 0) {
+                $pbStatus.IsIndeterminate = $false
+                $pbStatus.Value = $Percent
+                $pbStatus.Maximum = 100
+            }
+            else {
+                $pbStatus.IsIndeterminate = $true
+            }
         }
     }
     else {
-        $pbStatus.Visibility = "Hidden"
-        $pbStatus.IsIndeterminate = $true # Reset for next time
+        if ($pbStatus) {
+            $pbStatus.Visibility = "Hidden"
+            $pbStatus.IsIndeterminate = $true # Reset for next time
+        }
     }
 }
 
@@ -331,14 +512,15 @@ function Clear-Details {
     $rbScheduled.IsChecked = $false
     $dpStartDate.SelectedDate = $null
     $dpEndDate.SelectedDate = $null
-    $txtInternalMsg.Text = ""
-    $txtExternalMsg.Text = ""
-    $txtCommonMsg.Text = ""
+    Set-EditorHtml $wbInternal ""
+    Set-EditorHtml $wbExternal ""
+    Set-EditorHtml $wbCommon ""
     $chkSyncMsg.IsChecked = $false
+    $chkExternalAudience.IsChecked = $false
     
     # Reset view to tabs
-    $tabMessages.Visibility = "Visible"
-    $txtCommonMsg.Visibility = "Collapsed"
+    Set-ControlVisibility $tabMessages "Visible"
+    Set-ControlVisibility $wbCommon "Collapsed"
     
     $grpConfig.IsEnabled = $false
     $grpMessages.IsEnabled = $false
@@ -349,37 +531,26 @@ function Clear-Details {
 # Event Handlers: Message Sync
 $chkSyncMsg.Add_Checked({
         # Switch to Common View
-        $tabMessages.Visibility = "Collapsed"
-        $txtCommonMsg.Visibility = "Visible"
+        Set-ControlVisibility $tabMessages "Collapsed"
+        Set-ControlVisibility $wbCommon "Visible"
     
         # Copy Internal to Common (assuming Internal is primary source)
-        $txtCommonMsg.Text = $txtInternalMsg.Text
+        Set-EditorHtml $wbCommon (Get-EditorHtml $wbInternal)
     })
 
 $chkSyncMsg.Add_Unchecked({
         # Switch back to Tabs
         $tabMessages.Visibility = "Visible"
-        $txtCommonMsg.Visibility = "Collapsed"
+        $wbCommon.Visibility = "Collapsed"
     
-        # Copy Common back to both (or just keep what was there? usually better to copy back)
-        $txtInternalMsg.Text = $txtCommonMsg.Text
-        $txtExternalMsg.Text = $txtCommonMsg.Text
+        # Copy Common back to both
+        $html = Get-EditorHtml $wbCommon
+        Set-EditorHtml $wbInternal $html
+        Set-EditorHtml $wbExternal $html
     })
 
-$txtInternalMsg.Add_TextChanged({
-        if ($chkSyncMsg.IsChecked) {
-            $txtExternalMsg.Text = $txtInternalMsg.Text
-        }
-        if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true }
-    })
-
-$txtExternalMsg.Add_TextChanged({
-        if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true }
-    })
-
-$txtCommonMsg.Add_TextChanged({
-        if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true }
-    })
+# Note: TextChanged handlers removed for WebBrowser. 
+# Unsaved changes trackings is now primarily button-based or can be added later via timer.
 
 $rbDisabled.Add_Checked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
 $rbEnabled.Add_Checked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
@@ -393,6 +564,8 @@ $cbEndHour.Add_SelectionChanged({ if ($grpConfig.IsEnabled) { $script:hasUnsaved
 $cbEndMin.Add_SelectionChanged({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
 $chkSyncMsg.Add_Checked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
 $chkSyncMsg.Add_Unchecked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
+$chkExternalAudience.Add_Checked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
+$chkExternalAudience.Add_Unchecked({ if ($grpConfig.IsEnabled) { $script:hasUnsavedChanges = $true } })
 
 function Search-Users {
     param($searchText)
@@ -439,6 +612,7 @@ function Search-Users {
                 $status = $oof.AutoReplyState
                 $internal = $oof.InternalMessage
                 $external = $oof.ExternalMessage
+                $extAudience = $oof.ExternalAudience
                 $start = $oof.StartTime
                 $end = $oof.EndTime
             }
@@ -446,19 +620,22 @@ function Search-Users {
                 $status = "Error"
                 $internal = ""
                 $external = ""
+                $extAudience = "None"
                 $start = $null
                 $end = $null
             }
 
             $userList += [PSCustomObject]@{
-                Name     = $u.DisplayName
-                Email    = $u.UserPrincipalName
-                Type     = $u.RecipientTypeDetails
-                Status   = $status
-                Internal = $internal
-                External = $external
-                Start    = $start
-                End      = $end
+                Name             = $u.DisplayName
+                Email            = $u.UserPrincipalName
+                Type             = $u.RecipientTypeDetails
+                Status           = $status
+                InternalAudience = if ($status -ne "Disabled" -and $status -ne "Error") { "All" } else { "None" }
+                ExternalAudience = $extAudience
+                Internal         = $internal
+                External         = $external
+                Start            = $start
+                End              = $end
             }
         }
 
@@ -608,7 +785,7 @@ Az alkalmazás futtatásához az alábbiak szükségesek:
 - A bal oldali **"Users"** panelen kereshet a szervezet felhasználói között.
 - Írja be a nevet vagy az e-mail címet a keresőmezőbe, majd nyomja meg a **"Search"** gombot.
 - Az alkalmazás egyszerre maximum 500 találatot jelenít meg a teljesítmény optimalizálása érdekében.
-- A táblázatban látható a felhasználók neve, e-mail címe és jelenlegi automatikus válasz állapota.
+- A táblázatban látható a felhasználók neve, e-mail címe, jelenlegi automatikus válasz állapota, valamint hogy a külső válaszok engedélyezve vannak-e (Ext oszlop).
 
 ---
 
@@ -620,6 +797,7 @@ Válasszon ki egy felhasználót a listából. A jobb oldali panelen betöltődn
 - **Disabled**: Alapértelmezett állapot, az automatikus válasz ki van kapcsolva.
 - **Enabled (Always)**: Az automatikus válasz azonnal és határozatlan ideig bekapcsol.
 - **Scheduled**: Időzített válasz. Ebben a módban meg kell adni a kezdő és záró dátumot, valamint az időpontot (óra:perc).
+- **Send Outside Org**: Ez a jelölőnégyzet szabályozza, hogy a külső (szervezeten kívüli) feladóknak is menjen-e válasz.
 
 ### Üzenetek Szerkesztése
 - **Internal**: A szervezeten belüli munkatársaknak küldött üzenet.
@@ -649,7 +827,8 @@ A **"Export CSV"** gombbal kimentheti a jelenleg listázott összes felhasznál�
 ### Importálás
 A **"Import CSV"** gombbal tömegesen állíthat be automatikus válaszokat egy fájl alapú lista alapján.
 - A CSV fájlnak tartalmaznia kell egy `Email` oszlopot.
-- További támogatott oszlopok: `Status`, `Internal`, `External`, `Start`, `End`.
+- További támogatott oszlopok: `Status`, `Internal`, `External`, `ExternalAudience`, `Start`, `End`.
+- Az `ExternalAudience` értéke lehet `All` (bekapcsolva) vagy `None` (kikapcsolva).
 - Az importálás felülírja a célfelhasználók jelenlegi beállításait.
 
 ---
@@ -698,7 +877,7 @@ To run the application, the following are required:
 - Search for organization users in the left **"Users"** panel.
 - Enter a name or email address in the search box and press the **"Search"** button.
 - The application displays a maximum of 500 results at a time to optimize performance.
-- The table shows user names, email addresses, and current automatic reply status.
+- The table shows user names, email addresses, current automatic reply status, and whether external replies are enabled (Ext column).
 
 ---
 
@@ -710,6 +889,7 @@ Select a user from the list. Their current settings will load in the right panel
 - **Disabled**: Default state, automatic reply is turned off.
 - **Enabled (Always)**: Automatic reply turns on immediately and indefinitely.
 - **Scheduled**: Timed reply. In this mode, you must specify start and end dates and times (HH:MM).
+- **Send Outside Org**: This checkbox controls whether automatic replies are sent to external senders.
 
 ### Editing Messages
 - **Internal**: Message sent to colleagues within the organization.
@@ -739,7 +919,8 @@ Use the **"Export CSV"** button to save settings for all currently listed users 
 ### Importing
 The **"Import CSV"** button allows for bulk setting of automatic replies based on a file-based list.
 - The CSV file must contain an `Email` column.
-- Other supported columns: `Status`, `Internal`, `External`, `Start`, `End`.
+- Other supported columns: `Status`, `Internal`, `External`, `ExternalAudience`, `Start`, `End`.
+- `ExternalAudience` can be `All` (enabled) or `None` (disabled).
 - Importing overwrites the current settings for target users.
 
 ---
@@ -890,11 +1071,12 @@ $btnImport.Add_Click({
 
                     try {
                         $params = @{
-                            Identity        = $row.Email
-                            AutoReplyState  = if ($row.Status) { $row.Status } else { "Disabled" }
-                            InternalMessage = if ($row.Internal) { $row.Internal } else { "" }
-                            ExternalMessage = if ($row.External) { $row.External } else { "" }
-                            ErrorAction     = "Stop"
+                            Identity         = $row.Email
+                            AutoReplyState   = if ($row.Status) { $row.Status } else { "Disabled" }
+                            InternalMessage  = if ($row.Internal) { $row.Internal } else { "" }
+                            ExternalMessage  = if ($row.External) { $row.External } else { "" }
+                            ExternalAudience = if ($row.ExternalAudience) { $row.ExternalAudience } else { "None" }
+                            ErrorAction      = "Stop"
                         }
                         
                         # Handle Schedule if present
@@ -1019,20 +1201,22 @@ $dgUsers.Add_SelectionChanged({
                 }
                 else { $dpEndDate.SelectedDate = $null }
 
-                $txtInternalMsg.Text = $config.InternalMessage
-                $txtExternalMsg.Text = $config.ExternalMessage
+                $chkExternalAudience.IsChecked = ($config.ExternalAudience -ne "None")
+
+                Set-EditorHtml $wbInternal $config.InternalMessage
+                Set-EditorHtml $wbExternal $config.ExternalMessage
             
                 # Auto-detect sync state
                 if ($config.InternalMessage -eq $config.ExternalMessage -and -not [string]::IsNullOrEmpty($config.InternalMessage)) {
                     $chkSyncMsg.IsChecked = $true
-                    $txtCommonMsg.Text = $config.InternalMessage
-                    $tabMessages.Visibility = "Collapsed"
-                    $txtCommonMsg.Visibility = "Visible"
+                    Set-EditorHtml $wbCommon $config.InternalMessage
+                    Set-ControlVisibility $tabMessages "Collapsed"
+                    Set-ControlVisibility $wbCommon "Visible"
                 }
                 else {
                     $chkSyncMsg.IsChecked = $false
-                    $tabMessages.Visibility = "Visible"
-                    $txtCommonMsg.Visibility = "Collapsed"
+                    Set-ControlVisibility $tabMessages "Visible"
+                    Set-ControlVisibility $wbCommon "Collapsed"
                 }
 
                 $grpConfig.IsEnabled = $true
@@ -1066,18 +1250,19 @@ $btnSave.Add_Click({
         elseif ($rbScheduled.IsChecked) { $state = "Scheduled" }
 
         # Determine messages based on Sync
-        $msgInternal = $txtInternalMsg.Text
-        $msgExternal = $txtExternalMsg.Text
+        $msgInternal = Get-EditorHtml $wbInternal
+        $msgExternal = Get-EditorHtml $wbExternal
         
         if ($chkSyncMsg.IsChecked) {
-            $msgInternal = $txtCommonMsg.Text
-            $msgExternal = $txtCommonMsg.Text
+            $msgInternal = Get-EditorHtml $wbCommon
+            $msgExternal = $msgInternal
         }
 
         $baseParams = @{
-            AutoReplyState  = $state
-            InternalMessage = $msgInternal
-            ExternalMessage = $msgExternal
+            AutoReplyState   = $state
+            InternalMessage  = $msgInternal
+            ExternalMessage  = $msgExternal
+            ExternalAudience = if ($chkExternalAudience.IsChecked) { "All" } else { "None" }
         }
 
         if ($state -eq "Scheduled") {
@@ -1149,15 +1334,15 @@ $btnClear.Add_Click({
             [System.Windows.Forms.Application]::DoEvents()
         
             foreach ($item in $selectedItems) {
-                Set-MailboxAutoReplyConfiguration -Identity $item.Email -AutoReplyState Disabled -InternalMessage "" -ExternalMessage "" -ErrorAction Stop
+                Set-MailboxAutoReplyConfiguration -Identity $item.Email -AutoReplyState Disabled -InternalMessage "" -ExternalMessage "" -ExternalAudience None -ErrorAction Stop
             }
     
             # Update UI if single user, else just clear
             if ($selectedItems.Count -eq 1) {
                 $rbDisabled.IsChecked = $true
-                $txtInternalMsg.Text = ""
-                $txtExternalMsg.Text = ""
-                $txtCommonMsg.Text = ""
+                Set-EditorHtml $wbInternal ""
+                Set-EditorHtml $wbExternal ""
+                Set-EditorHtml $wbCommon ""
                 $dpStartDate.SelectedDate = $null
                 $dpEndDate.SelectedDate = $null
             }    
