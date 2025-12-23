@@ -1,6 +1,10 @@
 # O365-AutoReply-Manager (v1.0) by NetronIC
 GUI tool for managing Exchange Online Out-of-Office settings
 
+<p align="center">
+  <img src="images/screenshot.png" alt="O365 AutoReply Manager" width="600">
+</p>
+
 Az **O365 AutoReply Manager** egy PowerShell-alapú GUI alkalmazás, amely megkönnyíti a Microsoft 365 adminisztrátorok számára a kimenő automatikus válaszok (OOF) kezelését. Nincs szükség parancssorokra; kezelje szervezete postaládáit egy modern, intuitív felületen.
 
 ## 🚀 Főbb funkciók
