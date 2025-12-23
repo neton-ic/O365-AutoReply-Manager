@@ -24,7 +24,8 @@ Ez az alkalmazás lehetővé teszi Microsoft 365 postaládák automatikus válas
 - ExchangeOnlineManagement modul (v3.0.0+).
 - Megfelelő jogosultság (pl. Exchange Administrator).
 
-* Hibajelentés vagy közreműködés esetén kérjük, olvassa el a belső dokumentációt, vagy vegye fel a kapcsolatot a fejlesztői csapattal. *
+*Hibajelentés vagy közreműködés esetén kérjük, olvassa el a belső dokumentációt, vagy vegye fel a kapcsolatot a fejlesztői csapattal.*
+
 ---
 ## 🇺🇸 English Description
 This application allows for easy management of Microsoft 365 mailbox automatic replies through a professional graphical interface.
